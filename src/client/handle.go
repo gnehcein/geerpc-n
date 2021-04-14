@@ -1,40 +1,25 @@
 package client
 
 import (
-	"../server"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"time"
+	."../server"
 )
 
-func parseOptions(opts ...*server.Option) (*server.Option, error) {
-	// if opts is nil or pass nil as parameter
-	if len(opts) == 0 || opts[0] == nil {
-		return server.DefaultOption, nil
-	}
-	if len(opts) != 1 {
-		return nil, errors.New("number of options is more than 1")
-	}
-	opt := opts[0]
-	opt.MagicNumber = server.DefaultOption.MagicNumber
-	if opt.CodecType == "" {
-		opt.CodecType = server.DefaultOption.CodecType
-	}
-	return opt, nil
-}
 
 type clientResult struct {
 	client *Client
 	err    error
 }
 
-type newClientFunc func(conn net.Conn, opt *server.Option) (client *Client, err error)
+type newClientFunc func(conn net.Conn, opt *Option) (client *Client, err error)
 
 //f的作用是基于conn生成一个client，然后chan是获得另一个程序生成的结果（result：即client和err的组合）
-func dialTimeout(f newClientFunc, network, address string, opts ...*server.Option) (client *Client, err error) {
+func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (client *Client, err error) {
 	opt, err := parseOptions(opts...)
 	if err != nil {
 		return nil, err
@@ -67,11 +52,9 @@ func dialTimeout(f newClientFunc, network, address string, opts ...*server.Optio
 }
 
 // Dial connects to an RPC server at the specified network address
-func Dial(network, address string, opts ...*server.Option) (*Client, error) {
+func Dial(network, address string, opts ...*Option) (*Client, error) {
 	return dialTimeout(NewClient, network, address, opts...)
 }
-
-
 
 func (client *Client) send(call *Call) {
 	// make sure that the client will send a complete request

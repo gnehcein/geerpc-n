@@ -31,8 +31,6 @@ var DefaultOption = &Option{
 // Server represents an RPC Server.
 type Server struct {
 	serviceMap sync.Map  	//并发安全的map类型
-	connectTime time.Duration
-	handleTime time.Duration
 }
 
 // NewServer returns a new Server.
@@ -110,14 +108,14 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) { //get the data from t
 		log.Printf("rpc server: invalid codec type %s", opt.CodecType)
 		return
 	}
-	server.handleTime=opt.Timeout
-	server.serveCodec(f(conn))
+	time:=opt.Timeout
+	server.serveCodec(f(conn),time)
 }
 
 // invalidRequest is a placeholder for response argv when error occurs
 var invalidRequest = struct{}{}
 
-func (server *Server) serveCodec(cc codec.Codec) {
+func (server *Server) serveCodec(cc codec.Codec,time time.Duration) {
 	//following should use new()
 	sending := new(sync.Mutex) // make sure to send a complete response
 	wg := new(sync.WaitGroup)  // wait until all request are handled
@@ -132,7 +130,7 @@ func (server *Server) serveCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
-		go server.handleRequest(cc, req, sending, wg,server.connectTime)
+		go server.handleRequest(cc, req, sending, wg,time)
 	}
 	wg.Wait()
 	_ = cc.Close()
@@ -228,3 +226,4 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 		log.Println("rpc server: write response error:", err)
 	}
 }
+
