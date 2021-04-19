@@ -90,7 +90,7 @@ func (m *methodType) newArgv() reflect.Value {
 func (m *methodType) newReplyv() reflect.Value {
 	// reply must be a pointer type
 	replyv := reflect.New(m.ReplyType.Elem())
-	switch m.ReplyType.Elem().Kind() {
+	switch m.ReplyType.Elem().Kind() {	//if the type is basic e.g. int,dont care ,else ,初始化。
 	case reflect.Map:
 		replyv.Elem().Set(reflect.MakeMap(m.ReplyType.Elem()))
 	case reflect.Slice:
