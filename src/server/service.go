@@ -16,6 +16,7 @@ type service struct {
 
 func newService(rcvr interface{}) *service {
 	s := new(service)
+
 	s.rcvr = reflect.ValueOf(rcvr)
 	s.name = reflect.Indirect(s.rcvr).Type().Name()	//两者的名字是一致的（service&register struct)
 	s.typ = reflect.TypeOf(rcvr)
@@ -38,7 +39,7 @@ func (s *service) registerMethods() {
 		if mType.Out(0) != reflect.TypeOf((*error)(nil)).Elem() {
 			continue
 		}
-		argType, replyType := mType.In(1), mType.In(2)
+		argType, replyType := mType.In(1), mType.In(2)		//从in(1) 开始，因为in(0)是调用方法的结构体（t *T)func()...
 		if !isExportedOrBuiltinType(argType) || !isExportedOrBuiltinType(replyType) {
 			continue
 		}
@@ -90,7 +91,7 @@ func (m *methodType) newArgv() reflect.Value {
 func (m *methodType) newReplyv() reflect.Value {
 	// reply must be a pointer type
 	replyv := reflect.New(m.ReplyType.Elem())
-	switch m.ReplyType.Elem().Kind() {	//if the type is basic e.g. int,dont care ,else ,初始化。
+	switch m.ReplyType.Elem().Kind() {
 	case reflect.Map:
 		replyv.Elem().Set(reflect.MakeMap(m.ReplyType.Elem()))
 	case reflect.Slice:

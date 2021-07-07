@@ -3,17 +3,38 @@ package client
 import (
 	"../codec"
 	. "../server"
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 )
 
+const (
+	connected        = "200 Connected to Gee RPC"
+	defaultRPCPath   = "/_geeprc_"
+	defaultDebugPath = "/debug/geerpc"
+)
 
-
+func parseOptions(opts ...*Option) (*Option, error) {
+	//opt可以有1个参数或者没有参数
+	if len(opts) == 0 || opts[0] == nil {
+		return DefaultOption, nil
+	}
+	if len(opts) != 1 {
+		return nil, errors.New("number of options is more than 1")
+	}
+	opt := opts[0]
+	opt.MagicNumber = DefaultOption.MagicNumber
+	if opt.CodecType == "" {
+		opt.CodecType = DefaultOption.CodecType
+	}
+	return opt, nil
+}
 
 type Call struct {
 	Seq           uint64
@@ -74,8 +95,8 @@ func (client *Client) registerCall(call *Call) (uint64, error) {
 	return call.Seq, nil
 }
 
-func (client *Client) removeCall(seq uint64) *Call {
-	client.mu.Lock()
+func (client *Client) removeCall(seq uint64) *Call {	//when the receive method get the header,
+	client.mu.Lock()									//unload the call which corresponds the seq and return it
 	defer client.mu.Unlock()
 	call := client.pending[seq]
 	delete(client.pending, seq)
@@ -94,11 +115,12 @@ func (client *Client) terminateCalls(err error) {
 	}
 }
 //handle a header and a body everytime;if err!=nil,stop
-func (client *Client) receive() {
+
+func (client *Client) receive() {	//always be active
 	var err error
 	for err == nil {
 		var h codec.Header
-		if err = client.cc.ReadHeader(&h); err != nil {
+		if err = client.cc.ReadHeader(&h); err != nil {		//if there is no header arrives,waiting
 			break
 		}
 		call := client.removeCall(h.Seq)
@@ -116,7 +138,7 @@ func (client *Client) receive() {
 			if err != nil {
 				call.Error = errors.New("reading body " + err.Error())
 			}
-			call.done()
+			call.done()		//finish
 		}
 	}
 	// error occurs, so terminateCalls pending calls
@@ -136,7 +158,23 @@ func NewClient(conn net.Conn, opt *Option) (*Client, error) {
 		_ = conn.Close()
 		return nil, err
 	}
-	return newClientCodec(f(conn), opt), nil
+	client := newClientCodec(f(conn), opt)
+	return client, nil
+}
+
+func NewHTTPClient(conn net.Conn, opt *Option) (*Client, error) {
+	//写入
+	_, _ = io.WriteString(conn, fmt.Sprintf("CONNECT %s HTTP/1.0\n\n", defaultRPCPath))
+	//接收
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
+
+	if err == nil && resp.Status == connected {
+		return NewClient(conn, opt)
+	}
+	if err == nil {
+		err = errors.New("unexpected HTTP response: " + resp.Status)
+	}
+	return nil, err
 }
 
 func newClientCodec(cc codec.Codec, opt *Option) *Client {

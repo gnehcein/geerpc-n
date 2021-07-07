@@ -1,13 +1,10 @@
 package client
 
 import (
+	. "../server"
 	"context"
 	"errors"
-	"fmt"
-	"log"
 	"net"
-	"time"
-	."../server"
 )
 
 
@@ -18,8 +15,8 @@ type clientResult struct {
 
 type newClientFunc func(conn net.Conn, opt *Option) (client *Client, err error)
 
-//f的作用是基于conn生成一个client，然后chan是获得另一个程序生成的结果（result：即client和err的组合）
-func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (client *Client, err error) {
+// DialTimeout f的作用是基于conn生成一个client，然后chan是获得另一个程序生成的结果（result：即client和err的组合）
+func DialTimeout(f newClientFunc, network, address string, opts ...*Option) (client *Client, err error) {
 	opt, err := parseOptions(opts...)
 	if err != nil {
 		return nil, err
@@ -39,28 +36,17 @@ func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (cli
 		client, err := f(conn, opt)
 		ch <- clientResult{client: client, err: err}
 	}()
-	if opt.Timeout == 0 {
-		result := <-ch
-		return result.client, result.err
-	}
-	select {
-	case <-time.After(opt.Timeout):
-		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.Timeout)
-	case result := <-ch:
-		return result.client, result.err
-	}
+
+	result := <-ch
+	return result.client, result.err
 }
 
 // Dial connects to an RPC server at the specified network address
 func Dial(network, address string, opts ...*Option) (*Client, error) {
-	return dialTimeout(NewClient, network, address, opts...)
+	return DialTimeout(NewClient, network, address, opts...)
 }
 
 func (client *Client) send(call *Call) {
-	// make sure that the client will send a complete request
-	client.sending.Lock()
-	defer client.sending.Unlock()
-
 	// register this call.
 	seq, err := client.registerCall(call)
 	if err != nil {
@@ -69,8 +55,10 @@ func (client *Client) send(call *Call) {
 		return
 	}
 
+	client.sending.Lock()
+	defer client.sending.Unlock()
 	// prepare request header
-	client.header.ServiceMethod = call.ServiceMethod
+	client.header.ServiceMethod = call.ServiceMethod	//header临时使用
 	client.header.Seq = seq
 	client.header.Error = ""
 
@@ -88,12 +76,8 @@ func (client *Client) send(call *Call) {
 
 // Go invokes the function asynchronously.
 // It returns the Call structure representing the invocation.
-func (client *Client) Go(serviceMethod string, args, reply interface{}, done chan *Call) *Call {
-	if done == nil {
-		done = make(chan *Call, 10)
-	} else if cap(done) == 0 {
-		log.Panic("rpc client: done channel is unbuffered")
-	}
+func (client *Client) Go(serviceMethod string, args, reply interface{}) *Call {
+	done := make(chan *Call, 1)
 	call := &Call{
 		ServiceMethod: serviceMethod,
 		Args:          args,
@@ -107,12 +91,12 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 // Call invokes the named function, waits for it to complete,
 // and returns its error status.
 func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
-	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
+	call := client.Go(serviceMethod, args, reply)
 	select {
 	case <-ctx.Done():
 		client.removeCall(call.Seq)
 		return errors.New("rpc client: call failed: " + ctx.Err().Error())
-	case call := <-call.Done:
+	case call := <-call.Done:	//call success
 		return call.Error
 	}
 }

@@ -154,6 +154,7 @@ func (server *Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
 	}
 	return &h, nil
 }
+
 //read header and body,header includes method name,body is the arg
 func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	h, err := server.readRequestHeader(cc)

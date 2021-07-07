@@ -2,45 +2,74 @@ package xclient
 
 import (
 	. "../client"
-	."../server"
+	. "../server"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 )
+
+type Args struct{ Num1, Num2 int }
 
 type XClient struct {
 	d       Discovery
 	mode    SelectMode
 	opt     *Option
 	mu      sync.Mutex // protect following
-	clients map[string]*Client
+	Clients map[string]*Client
 }
 
 var _ io.Closer = (*XClient)(nil)
 
 func NewXClient(d Discovery, mode SelectMode, opt *Option) *XClient {
-	return &XClient{d: d, mode: mode, opt: opt, clients: make(map[string]*Client)}
+	return &XClient{d: d, mode: mode, opt: opt, Clients: make(map[string]*Client)}
 }
 
 func (xc *XClient) Close() error {
 	xc.mu.Lock()
 	defer xc.mu.Unlock()
-	for key, client := range xc.clients {
+	for key, client := range xc.Clients {
 		// I have no idea how to deal with error, just ignore it.
 		_ = client.Close()
-		delete(xc.clients, key)
+		delete(xc.Clients, key)
 	}
 	return nil
 }
+
+// DialHTTP connects to an HTTP RPC server at the specified network address
+// listening on the default HTTP RPC path.
+func DialHTTP(network, address string, opts ...*Option) (*Client, error) {
+	return DialTimeout(NewHTTPClient, network, address, opts...)
+}
+
+// XDial packing for DialHTTP(network,address->rpcAddr)
+////eg, http@10.0.0.1:7001, tcp@10.0.0.1:9999, unix@/tmp/geerpc.sock
+func XDial(rpcAddr string, opts ...*Option) (*Client, error) {
+	parts := strings.Split(rpcAddr, "@")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("rpc client err: wrong format '%s', expect protocol@addr", rpcAddr)
+	}
+	protocol, addr := parts[0], parts[1]
+	fmt.Println(protocol,addr)
+	switch protocol {
+	case "http":
+		return DialHTTP("tcp", addr, opts...)
+	default:
+		// tcp, unix or other transport protocol
+		return Dial(protocol, addr, opts...)
+	}
+}
+
 func (xc *XClient) dial(rpcAddr string) (*Client, error) {
 	xc.mu.Lock()
 	defer xc.mu.Unlock()
-	client, ok := xc.clients[rpcAddr]
-	if ok && !client.IsAvailable() {
+	client, ok := xc.Clients[rpcAddr]
+	if ok && !client.IsAvailable() {	// if the client is crash,remake it
 		_ = client.Close()
-		delete(xc.clients, rpcAddr)
+		delete(xc.Clients, rpcAddr)
 		client = nil
 	}
 	if client == nil {
@@ -49,7 +78,7 @@ func (xc *XClient) dial(rpcAddr string) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		xc.clients[rpcAddr] = client
+		xc.Clients[rpcAddr] = client
 	}
 	return client, nil
 }
@@ -65,8 +94,9 @@ func (xc *XClient) call(rpcAddr string, ctx context.Context, serviceMethod strin
 // Call invokes the named function, waits for it to complete,
 // and returns its error status.
 // xc will choose a proper server.
-func (xc *XClient) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
+func (xc *XClient) Call(ctx context.Context, serviceMethod string, args *Args, reply interface{}) error {
 	rpcAddr, err := xc.d.Get(xc.mode)
+	fmt.Println("calling:",rpcAddr,"arg num:",args.Num1)
 	if err != nil {
 		return err
 	}
